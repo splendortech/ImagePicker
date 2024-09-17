@@ -11,6 +11,7 @@
 
 #import "GMImagePickerController.h"
 #import "GMFetchItem.h"
+#import <PhotosUI/PhotosUI.h>
 
 #define CDV_PHOTO_PREFIX @"cdv_photo_"
 
@@ -39,25 +40,25 @@ typedef enum : NSUInteger {
     PHAuthorizationStatus status = [PHPhotoLibrary authorizationStatus];
     if (status == PHAuthorizationStatusAuthorized) {
         NSLog(@"Access has been granted.");
-        
+
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     } else if (status == PHAuthorizationStatusDenied) {
         NSString* message = @"Access has been denied. Change your setting > this app > Photo enable";
         NSLog(@"%@", message);
-        
+
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:message];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     } else if (status == PHAuthorizationStatusNotDetermined) {
         // Access has not been determined. requestAuthorization: is available
         [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {}];
-        
+
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     } else if (status == PHAuthorizationStatusRestricted) {
         NSString* message = @"Access has been restricted. Change your setting > Privacy > Photo enable";
         NSLog(@"%@", message);
-        
+
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:message];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     }
@@ -86,26 +87,141 @@ typedef enum : NSUInteger {
 
 - (void)launchGMImagePicker:(bool)allow_video title:(NSString *)title message:(NSString *)message disable_popover:(BOOL)disable_popover maximumImagesCount:(NSInteger)maximumImagesCount
 {
-    GMImagePickerController *picker = [[GMImagePickerController alloc] init:allow_video];
-    picker.delegate = self;
-    picker.maximumImagesCount = maximumImagesCount;
-    picker.title = title;
-    picker.customNavigationBarPrompt = message;
-    picker.colsInPortrait = 4;
-    picker.colsInLandscape = 6;
-    picker.minimumInteritemSpacing = 2.0;
+    // GMImagePickerController *picker = [[GMImagePickerController alloc] init:allow_video];
+    // picker.delegate = self;
+    // picker.maximumImagesCount = maximumImagesCount;
+    // picker.title = title;
+    // picker.customNavigationBarPrompt = message;
+    // picker.colsInPortrait = 4;
+    // picker.colsInLandscape = 6;
+    // picker.minimumInteritemSpacing = 2.0;
 
-    if(!disable_popover) {
-        picker.modalPresentationStyle = UIModalPresentationPopover;
+    // if(!disable_popover) {
+    //     picker.modalPresentationStyle = UIModalPresentationPopover;
 
-        UIPopoverPresentationController *popPC = picker.popoverPresentationController;
-        popPC.permittedArrowDirections = UIPopoverArrowDirectionAny;
-        popPC.sourceView = picker.view;
-        //popPC.sourceRect = nil;
+    //     UIPopoverPresentationController *popPC = picker.popoverPresentationController;
+    //     popPC.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    //     popPC.sourceView = picker.view;
+    //     //popPC.sourceRect = nil;
+    // }
+
+    // [self.viewController showViewController:picker sender:nil];
+
+    // Configuração do PHPicker
+    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
+    config.selectionLimit = maximumImagesCount; // Pode alterar para permitir múltiplas seleções
+    config.filter = [PHPickerFilter imagesFilter]; // Para selecionar apenas imagens
+
+    // Inicializando o PHPickerViewController
+    PHPickerViewController *pickerViewController = [[PHPickerViewController alloc] initWithConfiguration:config];
+    pickerViewController.delegate = self;
+
+    // Apresentando o Picker
+    [self.viewController presentViewController:pickerViewController animated:YES completion:nil];
+}
+
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    [self.viewController dismissViewControllerAnimated:YES completion:nil];
+
+    NSLog(@"PHPicker: User finished picking assets. Number of selected items is: %lu", (unsigned long)results.count);
+    if (results.count == 0) {
+        // Nenhuma imagem selecionada
+        return;
     }
 
-    [self.viewController showViewController:picker sender:nil];
+    NSMutableArray *result_all = [[NSMutableArray alloc] init];
+    CGSize targetSize = CGSizeMake(self.width, self.height);
+    NSFileManager* fileMgr = [[NSFileManager alloc] init];
+    NSString* docsPath = [NSTemporaryDirectory() stringByStandardizingPath];
+
+    __block int i = 1;
+    __block NSString* filePath;
+    __block CDVPluginResult* result = nil;
+
+    // Criando o dispatch_group
+    dispatch_group_t group = dispatch_group_create();
+
+    NSError *err = nil;
+
+    for (PHPickerResult *item in results) {
+        if ([item.itemProvider canLoadObjectOfClass:[UIImage class]]) {
+            // Entra no grupo antes de iniciar o processamento de cada imagem
+            dispatch_group_enter(group);
+
+            [item.itemProvider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError * _Nullable error) {
+                if (image != nil) {
+                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                        NSLog(@"Imagem selecionada: %@", image);
+
+                        do {
+                            filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, @"jpg"];
+                        } while ([fileMgr fileExistsAtPath:filePath]);
+
+                        NSData* data = nil;
+                        NSError __autoreleasing *blockError = err;
+
+                        // Adicionando os condicionais de redimensionamento e qualidade
+                        if (self.width == 0 && self.height == 0) {
+                            // No scaling required
+                            if (self.outputType == BASE64_STRING) {
+                                [result_all addObject:[UIImageJPEGRepresentation(image, self.quality / 100.0f) base64EncodedStringWithOptions:0]];
+                            } else {
+                                if (self.quality == 100) {
+                                    // No scaling, no downsampling, fastest option
+                                    [result_all addObject:filePath];
+                                } else {
+                                    // Resample first
+                                    data = UIImageJPEGRepresentation(image, self.quality / 100.0f);
+                                    if (![data writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
+                                        result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
+                                    } else {
+                                        [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
+                                    }
+                                }
+                            }
+                        } else {
+                            // Scale the image
+                            UIImage* scaledImage = [self imageByScalingNotCroppingForSize:image toSize:targetSize];
+                            data = UIImageJPEGRepresentation(scaledImage, self.quality / 100.0f);
+
+                            if (![data writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
+                                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
+                            } else {
+                                if (self.outputType == BASE64_STRING) {
+                                    [result_all addObject:[data base64EncodedStringWithOptions:0]];
+                                } else {
+                                    [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
+                                }
+                            }
+                        }
+
+                        // Sair do grupo após o processamento da imagem
+                        dispatch_group_leave(group);
+                    });
+                } else {
+                    // Se houve erro ao carregar a imagem, sair do grupo
+                    dispatch_group_leave(group);
+                }
+            }];
+        }
+    }
+
+    // Aguardar até que todas as imagens tenham sido processadas
+    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+        if (result == nil) {
+            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:result_all];
+        }
+
+        NSLog(@"Imagens selecionadas - End: %@", result);
+        [self.commandDelegate sendPluginResult:result callbackId:self.callbackId];
+    });
 }
+
+
+
+
+
+
 
 
 - (UIImage*)imageByScalingNotCroppingForSize:(UIImage*)anImage toSize:(CGSize)frameSize
@@ -152,9 +268,11 @@ typedef enum : NSUInteger {
 }
 
 
+
+
+
+
 #pragma mark - UIImagePickerControllerDelegate
-
-
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info
 {
     [picker.presentingViewController dismissViewControllerAnimated:YES completion:nil];
