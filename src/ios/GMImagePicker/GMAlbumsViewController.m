@@ -29,6 +29,7 @@
 @property (nonatomic, weak) GMImagePickerController *picker;
 @property (strong) PHCachingImageManager *imageManager;
 @property (nonatomic, strong) NSMutableDictionary * dic_asset_fetches;
+@property(assign) NSInteger maximumImagesCount;
 
 @end
 
@@ -44,12 +45,14 @@
     if (self = [super initWithStyle:UITableViewStylePlain])
     {
         self.preferredContentSize = kPopoverContentSize;
+
     }
 
     dic_asset_fetches = [[NSMutableDictionary alloc] init];
 
     allow_video = allow_v;
 
+    self.maximumImagesCount = 5;
     return self;
 }
 
@@ -117,12 +120,19 @@ static NSString * const CollectionCellReuseIdentifier = @"CollectionCell";
                                 //[NSSortDescriptor sortDescriptorWithKey:@"localizedTitle" ascending:YES],
                                 [ NSSortDescriptor sortDescriptorWithKey:@"title" ascending:YES selector:@selector(localizedCaseInsensitiveCompare:)],
                                 ];
+    options.fetchLimit = self.maximumImagesCount;
 
     //Fetch PHAssetCollections:
-    PHFetchResult *topLevelUserCollections = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeAlbum subtype:PHAssetCollectionSubtypeAny options:options];
-    //PHFetchResult *topLevelUserCollections = [PHCollectionList fetchTopLevelUserCollectionsWithOptions:nil];
-    //PHFetchResult *smartAlbums = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAlbumRegular options:nil];
-    PHFetchResult *smartAlbums = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAny options:nil];
+
+    // PHFetchResult *topLevelUserCollections = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeAlbum subtype:PHAssetCollectionSubtypeAny options:options];
+    NSMutableArray *emptyArray = [NSMutableArray new];
+    PHFetchResult *topLevelUserCollections = emptyArray;
+    PHFetchResult *smartAlbums = emptyArray;
+    // PHFetchResult *topLevelUserCollections = [PHCollectionList fetchTopLevelUserCollectionsWithOptions:nil];
+    // PHFetchResult *smartAlbums = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAlbumRegular options:nil];
+
+    // PHFetchResult *smartAlbums = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAny options:nil];
+
     self.collectionsFetchResults = @[topLevelUserCollections, smartAlbums];
     self.collectionsLocalizedTitles = @[NSLocalizedStringFromTable(@"picker.table.user-albums-header", @"GMImagePicker",@"Albums"), NSLocalizedStringFromTable(@"picker.table.smart-albums-header", @"GMImagePicker",@"Smart Albums")];
 
@@ -148,7 +158,7 @@ static NSString * const CollectionCellReuseIdentifier = @"CollectionCell";
     PHFetchOptions *options = [[PHFetchOptions alloc] init];
     options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
     options.predicate = predicatePHAsset;
-    options.fetchLimit = 10000;
+    options.fetchLimit = self.maximumImagesCount;
 
     self.collectionsFetchResultsAssets=nil;
     self.collectionsFetchResultsTitles=nil;
@@ -170,47 +180,47 @@ static NSString * const CollectionCellReuseIdentifier = @"CollectionCell";
     //User albums:
     NSMutableArray *userFetchResultArray = [[NSMutableArray alloc] init];
     NSMutableArray *userFetchResultLabel = [[NSMutableArray alloc] init];
-    for(PHCollection *collection in topLevelUserCollections)
-    {
-        if ([collection isKindOfClass:[PHAssetCollection class]])
-        {
-            //PHFetchOptions *options = [[PHFetchOptions alloc] init];
-            //options.predicate = predicatePHAsset;
-            PHAssetCollection *assetCollection = (PHAssetCollection *)collection;
+    // for(PHCollection *collection in topLevelUserCollections)
+    // {
+    //     if ([collection isKindOfClass:[PHAssetCollection class]])
+    //     {
+    //         //PHFetchOptions *options = [[PHFetchOptions alloc] init];
+    //         //options.predicate = predicatePHAsset;
+    //         PHAssetCollection *assetCollection = (PHAssetCollection *)collection;
 
-            //Albums collections are allways PHAssetCollectionType=1 & PHAssetCollectionSubtype=2
+    //         //Albums collections are allways PHAssetCollectionType=1 & PHAssetCollectionSubtype=2
 
-            PHFetchResult *assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:options];
-            [userFetchResultArray addObject:assetsFetchResult];
-            [userFetchResultLabel addObject:collection.localizedTitle ?: @""];
-        }
-    }
+    //         PHFetchResult *assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:options];
+    //         [userFetchResultArray addObject:assetsFetchResult];
+    //         [userFetchResultLabel addObject:collection.localizedTitle ?: @""];
+    //     }
+    // }
 
 
     //Smart albums: Sorted by descending creation date.
     NSMutableArray *smartFetchResultArray = [[NSMutableArray alloc] init];
     NSMutableArray *smartFetchResultLabel = [[NSMutableArray alloc] init];
-    for(PHCollection *collection in smartAlbums)
-    {
-        if ([collection isKindOfClass:[PHAssetCollection class]])
-        {
-            PHAssetCollection *assetCollection = (PHAssetCollection *)collection;
+    // for(PHCollection *collection in smartAlbums)
+    // {
+    //     if ([collection isKindOfClass:[PHAssetCollection class]])
+    //     {
+    //         PHAssetCollection *assetCollection = (PHAssetCollection *)collection;
 
-            //Smart collections are PHAssetCollectionType=2;
-            if(self.picker.customSmartCollections && [self.picker.customSmartCollections containsObject:@(assetCollection.assetCollectionSubtype)])
-            {
-                //PHFetchOptions *options = [[PHFetchOptions alloc] init];
-                //options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
-                //options.predicate = predicatePHAsset;
-                PHFetchResult *assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:options];
-                if(assetsFetchResult.count>0)
-                {
-                    [smartFetchResultArray addObject:assetsFetchResult];
-                    [smartFetchResultLabel addObject:collection.localizedTitle];
-                }
-            }
-        }
-    }
+    //         //Smart collections are PHAssetCollectionType=2;
+    //         if(self.picker.customSmartCollections && [self.picker.customSmartCollections containsObject:@(assetCollection.assetCollectionSubtype)])
+    //         {
+    //             //PHFetchOptions *options = [[PHFetchOptions alloc] init];
+    //             //options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+    //             //options.predicate = predicatePHAsset;
+    //             PHFetchResult *assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:options];
+    //             if(assetsFetchResult.count>0)
+    //             {
+    //                 [smartFetchResultArray addObject:assetsFetchResult];
+    //                 [smartFetchResultLabel addObject:collection.localizedTitle];
+    //             }
+    //         }
+    //     }
+    // }
 
     self.collectionsFetchResultsAssets= @[allFetchResultArray,userFetchResultArray,smartFetchResultArray];
     self.collectionsFetchResultsTitles= @[allFetchResultLabel,userFetchResultLabel,smartFetchResultLabel];
