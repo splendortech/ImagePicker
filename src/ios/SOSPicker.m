@@ -12,6 +12,7 @@
 #import "GMImagePickerController.h"
 #import "GMFetchItem.h"
 #import <PhotosUI/PhotosUI.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #define CDV_PHOTO_PREFIX @"cdv_photo_"
 
@@ -120,15 +121,116 @@ typedef enum : NSUInteger {
     [self.viewController presentViewController:pickerViewController animated:YES completion:nil];
 }
 
+// - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+//     [self.viewController dismissViewControllerAnimated:YES completion:nil];
+
+//     NSLog(@"PHPicker: User finished picking assets. Number of selected items is: %lu", (unsigned long)results.count);
+//     if (results.count == 0) {
+//         // Nenhuma imagem selecionada
+//         return;
+//     }
+
+//     NSMutableArray *result_all = [[NSMutableArray alloc] init];
+//     CGSize targetSize = CGSizeMake(self.width, self.height);
+//     NSFileManager* fileMgr = [[NSFileManager alloc] init];
+//     NSString* docsPath = [NSTemporaryDirectory() stringByStandardizingPath];
+
+//     __block int i = 1;
+//     __block NSString* filePath;
+//     __block CDVPluginResult* result = nil;
+
+//     // Criando o dispatch_group
+//     dispatch_group_t group = dispatch_group_create();
+
+//     NSError *err = nil;
+
+//     for (PHPickerResult *item in results) {
+//         if ([item.itemProvider canLoadObjectOfClass:[UIImage class]]) {
+//             // Entra no grupo antes de iniciar o processamento de cada imagem
+//             dispatch_group_enter(group);
+
+//             [item.itemProvider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError * _Nullable error) {
+//                 if (image != nil) {
+//                     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+//                         NSLog(@"Imagem selecionada: %@", image);
+
+//                         do {
+//                             filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, @"jpg"];
+//                         } while ([fileMgr fileExistsAtPath:filePath]);
+
+//                         NSData* data = nil;
+//                         NSError __autoreleasing *blockError = err;
+
+//                         // Adicionando os condicionais de redimensionamento e qualidade
+//                         if (self.width == 0 && self.height == 0) {
+//                             // No scaling required
+//                             if (self.outputType == BASE64_STRING) {
+//                                 [result_all addObject:[UIImageJPEGRepresentation(image, self.quality / 100.0f) base64EncodedStringWithOptions:0]];
+//                             } else {
+//                                 if (self.quality == 100) {
+//                                     // No scaling, no downsampling, fastest option
+//                                     [result_all addObject:filePath];
+//                                 } else {
+//                                     // Resample first
+//                                     data = UIImageJPEGRepresentation(image, self.quality / 100.0f);
+//                                     if (![data writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
+//                                         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
+//                                     } else {
+//                                         [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
+//                                     }
+//                                 }
+//                             }
+//                         } else {
+//                             // Scale the image
+//                             UIImage* scaledImage = [self imageByScalingNotCroppingForSize:image toSize:targetSize];
+//                             data = UIImageJPEGRepresentation(scaledImage, self.quality / 100.0f);
+
+//                             if (![data writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
+//                                 result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
+//                             } else {
+//                                 if (self.outputType == BASE64_STRING) {
+//                                     [result_all addObject:[data base64EncodedStringWithOptions:0]];
+//                                 } else {
+//                                     [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
+//                                 }
+//                             }
+//                         }
+
+//                         // Sair do grupo após o processamento da imagem
+//                         dispatch_group_leave(group);
+//                     });
+//                 } else {
+//                     // Se houve erro ao carregar a imagem, sair do grupo
+//                     dispatch_group_leave(group);
+//                 }
+//             }];
+//         }
+//     }
+
+//     // Aguardar até que todas as imagens tenham sido processadas
+//     dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+//         if (result == nil) {
+//             result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:result_all];
+//         }
+
+//         NSLog(@"Imagens selecionadas - End: %@", result);
+//         [self.commandDelegate sendPluginResult:result callbackId:self.callbackId];
+//     });
+// }
+
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [self.viewController dismissViewControllerAnimated:YES completion:nil];
 
     NSLog(@"PHPicker: User finished picking assets. Number of selected items is: %lu", (unsigned long)results.count);
+
+    // Verifica se nenhuma imagem foi selecionada e retorna um array vazio
     if (results.count == 0) {
-        // Nenhuma imagem selecionada
+        CDVPluginResult *result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:@[]];
+        [self.commandDelegate sendPluginResult:result callbackId:self.callbackId];
         return;
     }
 
+    // Variáveis para armazenar o caminho e o resultado
     NSMutableArray *result_all = [[NSMutableArray alloc] init];
     CGSize targetSize = CGSizeMake(self.width, self.height);
     NSFileManager* fileMgr = [[NSFileManager alloc] init];
@@ -141,68 +243,64 @@ typedef enum : NSUInteger {
     // Criando o dispatch_group
     dispatch_group_t group = dispatch_group_create();
 
-    NSError *err = nil;
-
+    // Processar cada item selecionado
     for (PHPickerResult *item in results) {
-        if ([item.itemProvider canLoadObjectOfClass:[UIImage class]]) {
+        if ([item.itemProvider hasItemConformingToTypeIdentifier:(NSString *)UTTypeImage.identifier]) {
             // Entra no grupo antes de iniciar o processamento de cada imagem
             dispatch_group_enter(group);
 
-            [item.itemProvider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError * _Nullable error) {
-                if (image != nil) {
+            [item.itemProvider loadDataRepresentationForTypeIdentifier:(NSString *)UTTypeImage.identifier completionHandler:^(NSData *imageData, NSError *error) {
+                if (imageData != nil) {
                     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                        NSLog(@"Imagem selecionada: %@", image);
+                        @autoreleasepool {
+                            do {
+                                filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, @"jpg"];
+                            } while ([fileMgr fileExistsAtPath:filePath]);
 
-                        do {
-                            filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, @"jpg"];
-                        } while ([fileMgr fileExistsAtPath:filePath]);
+                            NSError __autoreleasing *blockError = nil;
+                            NSData *processedData = nil;
 
-                        NSData* data = nil;
-                        NSError __autoreleasing *blockError = err;
-
-                        // Adicionando os condicionais de redimensionamento e qualidade
-                        if (self.width == 0 && self.height == 0) {
-                            // No scaling required
-                            if (self.outputType == BASE64_STRING) {
-                                [result_all addObject:[UIImageJPEGRepresentation(image, self.quality / 100.0f) base64EncodedStringWithOptions:0]];
-                            } else {
-                                if (self.quality == 100) {
-                                    // No scaling, no downsampling, fastest option
-                                    [result_all addObject:filePath];
+                            // Verifica as condições para escalonamento e qualidade
+                            if (self.width == 0 && self.height == 0) {
+                                // Não há necessidade de escalonar a imagem
+                                if (self.outputType == BASE64_STRING) {
+                                    [result_all addObject:[imageData base64EncodedStringWithOptions:0]];
                                 } else {
-                                    // Resample first
-                                    data = UIImageJPEGRepresentation(image, self.quality / 100.0f);
-                                    if (![data writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
+                                    // Sem redimensionamento, apenas salvar a imagem
+                                    processedData = imageData;
+                                    if (![processedData writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
                                         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
                                     } else {
                                         [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
                                     }
                                 }
-                            }
-                        } else {
-                            // Scale the image
-                            UIImage* scaledImage = [self imageByScalingNotCroppingForSize:image toSize:targetSize];
-                            data = UIImageJPEGRepresentation(scaledImage, self.quality / 100.0f);
-
-                            if (![data writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
-                                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
                             } else {
-                                if (self.outputType == BASE64_STRING) {
-                                    [result_all addObject:[data base64EncodedStringWithOptions:0]];
+                                // Redimensionar a imagem para o targetSize
+                                processedData = [self imageDataByScalingNotCroppingForSize:imageData toSize:targetSize];
+
+                                if (![processedData writeToFile:filePath options:NSAtomicWrite error:&blockError]) {
+                                    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[blockError localizedDescription]];
                                 } else {
-                                    [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
+                                    if (self.outputType == BASE64_STRING) {
+                                        [result_all addObject:[processedData base64EncodedStringWithOptions:0]];
+                                    } else {
+                                        [result_all addObject:[[NSURL fileURLWithPath:filePath] absoluteString]];
+                                    }
                                 }
                             }
-                        }
 
-                        // Sair do grupo após o processamento da imagem
-                        dispatch_group_leave(group);
+                            // Sair do grupo após o processamento da imagem
+                            dispatch_group_leave(group);
+                        }
                     });
                 } else {
-                    // Se houve erro ao carregar a imagem, sair do grupo
+                    // Se houve erro ao carregar os dados da imagem, sair do grupo
                     dispatch_group_leave(group);
                 }
             }];
+        } else {
+            // Sair do grupo se o item não for uma imagem válida
+            dispatch_group_leave(group);
         }
     }
 
@@ -217,55 +315,188 @@ typedef enum : NSUInteger {
     });
 }
 
+- (CGFloat)scaleFactorForOriginalSize:(CGSize)originalSize toSize:(CGSize)targetSize {
+    // Verifica se o tamanho original ou de destino tem largura ou altura zero
+    NSLog(@"In scale Tamanho original: %@", NSStringFromCGSize(originalSize));
+    NSLog(@"In scale Tamanho de destino: %@", NSStringFromCGSize(targetSize));
 
+    if (originalSize.width == 0 || originalSize.height == 0 || (targetSize.width == 0 && targetSize.height == 0)) {
+        NSLog(@"Erro: Tamanho original ou de destino inválido.");
+        return 1.0; // Não redimensionar
+    }
 
+    if (CGSizeEqualToSize(originalSize, targetSize)) {
+        return 1.0;
+    }
 
+    // Calcula os fatores de escala
+    CGFloat widthFactor = targetSize.width / originalSize.width;
+    CGFloat heightFactor = targetSize.height / originalSize.height;
 
-
-
-
-- (UIImage*)imageByScalingNotCroppingForSize:(UIImage*)anImage toSize:(CGSize)frameSize
-{
-    UIImage* sourceImage = anImage;
-    UIImage* newImage = nil;
-    CGSize imageSize = sourceImage.size;
-    CGFloat width = imageSize.width;
-    CGFloat height = imageSize.height;
-    CGFloat targetWidth = frameSize.width;
-    CGFloat targetHeight = frameSize.height;
+    // Seleciona o menor fator de escala para manter as proporções
     CGFloat scaleFactor = 0.0;
-    CGSize scaledSize = frameSize;
 
-    if (CGSizeEqualToSize(imageSize, frameSize) == NO) {
-        CGFloat widthFactor = targetWidth / width;
-        CGFloat heightFactor = targetHeight / height;
-
-        // opposite comparison to imageByScalingAndCroppingForSize in order to contain the image within the given bounds
-        if (widthFactor == 0.0) {
-            scaleFactor = heightFactor;
-        } else if (heightFactor == 0.0) {
-            scaleFactor = widthFactor;
-        } else if (widthFactor > heightFactor) {
-            scaleFactor = heightFactor; // scale to fit height
-        } else {
-            scaleFactor = widthFactor; // scale to fit width
-        }
-        scaledSize = CGSizeMake(floor(width * scaleFactor), floor(height * scaleFactor));
+    if (widthFactor == 0.0) {
+        scaleFactor = heightFactor;
+    } else if (heightFactor == 0.0) {
+        scaleFactor = widthFactor;
+    } else if (widthFactor > heightFactor) {
+        scaleFactor = heightFactor; // scale to fit height
+    } else {
+        scaleFactor = widthFactor; // scale to fit width
     }
 
-    UIGraphicsBeginImageContext(scaledSize); // this will resize
-
-    [sourceImage drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
-
-    newImage = UIGraphicsGetImageFromCurrentImageContext();
-    if (newImage == nil) {
-        NSLog(@"could not scale image");
-    }
-
-    // pop the context to get back to the default
-    UIGraphicsEndImageContext();
-    return newImage;
+    return scaleFactor;
 }
+
+
+- (NSData*)imageDataByScalingNotCroppingForSize:(NSData*)imageData toSize:(CGSize)frameSize {
+    // Verifica se o imageData não está vazio
+    if (imageData == nil || imageData.length == 0) {
+        NSLog(@"Erro: Os dados da imagem estão vazios ou corrompidos");
+        return nil;
+    }
+
+    // Cria uma fonte de imagem a partir dos dados
+    CGImageSourceRef imageSource = CGImageSourceCreateWithData((__bridge CFDataRef)imageData, NULL);
+    if (imageSource == NULL) {
+        NSLog(@"Erro ao criar CGImageSource");
+        return nil;
+    }
+
+    // Verifica o status da imagem para garantir que está completa
+    CGImageSourceStatus status = CGImageSourceGetStatus(imageSource);
+    NSLog(@"Status da imagem: %d", status);
+    if (status != kCGImageStatusComplete) {
+        NSLog(@"Erro: O status da imagem é inválido, status: %d", status);
+        CFRelease(imageSource);
+        return nil;
+    }
+
+    // Verifica o tipo da imagem
+    CFStringRef imageType = CGImageSourceGetType(imageSource);
+    NSLog(@"Tipo da imagem: %@", imageType);
+
+    // Obtém as propriedades da imagem original (tamanho)
+    NSDictionary *imageProperties = (__bridge NSDictionary *)CGImageSourceCopyPropertiesAtIndex(imageSource, 0, NULL);
+    CGSize imageSize = CGSizeMake([imageProperties[(NSString *)kCGImagePropertyPixelWidth] floatValue],
+                                  [imageProperties[(NSString *)kCGImagePropertyPixelHeight] floatValue]);
+
+    NSLog(@"Tamanho do frame: %@", NSStringFromCGSize(frameSize));
+
+    // CGFloat width = imageSize.width;
+    // CGFloat height = imageSize.height;
+    // CGFloat targetWidth = frameSize.width;
+    // CGFloat targetHeight = frameSize.height;
+
+    // NSLog(@"Largura da imagem: %f", width);
+    // NSLog(@"Altura da imagem: %f", height);
+    // NSLog(@"Largura do frame: %f", targetWidth);
+    // NSLog(@"Altura do frame: %f", targetHeight);
+
+    // Calcula o fator de escala mantendo as proporções
+    CGFloat scaleFactor = [self scaleFactorForOriginalSize:imageSize toSize:frameSize];
+    CGSize scaledSize = CGSizeMake(floor(imageSize.width * scaleFactor), floor(imageSize.height * scaleFactor));
+
+    NSLog(@"Fator de escala: %f", scaleFactor);
+    NSLog(@"Tamanho da imagem original: %@", NSStringFromCGSize(imageSize));
+    NSLog(@"Tamanho da imagem escalada: %@", NSStringFromCGSize(scaledSize));
+
+    // if (!CGSizeEqualToSize(imageSize, frameSize)) {
+    //     CGFloat widthFactor = targetWidth / width;
+    //     CGFloat heightFactor = targetHeight / height;
+
+    //     if (widthFactor == 0.0) {
+    //         scaleFactor = heightFactor;
+    //     } else if (heightFactor == 0.0) {
+    //         scaleFactor = widthFactor;
+    //     } else if (widthFactor > heightFactor) {
+    //         scaleFactor = heightFactor; // scale to fit height
+    //     } else {
+    //         scaleFactor = widthFactor; // scale to fit width
+    //     }
+
+
+    //     scaledSize = CGSizeMake(floor(width * scaleFactor), floor(height * scaleFactor));
+    // }
+
+    // Configura as opções para o redimensionamento
+    NSDictionary *options = @{
+        (NSString *)kCGImageSourceThumbnailMaxPixelSize : @(MAX(scaledSize.width, scaledSize.height)),
+        (NSString *)kCGImageSourceCreateThumbnailFromImageAlways : @YES
+    };
+
+    NSLog(@"Opções de redimensionamento: %@", options);
+    // Tenta criar a miniatura
+    CGImageRef scaledImageRef = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, (__bridge CFDictionaryRef)options);
+
+    if (scaledImageRef == NULL) {
+        NSLog(@"Erro: Falha ao criar miniatura, tentando carregar imagem completa");
+
+        // Tenta criar a imagem completa se a miniatura falhar
+        scaledImageRef = CGImageSourceCreateImageAtIndex(imageSource, 0, NULL);
+        if (scaledImageRef == NULL) {
+            NSLog(@"Erro: Falha ao criar a imagem completa");
+            CFRelease(imageSource);
+            return nil;
+        }
+    }
+
+    // Converte o CGImage escalado para UIImage
+    UIImage *scaledImage = [UIImage imageWithCGImage:scaledImageRef];
+    NSData *scaledImageData = UIImageJPEGRepresentation(scaledImage, self.quality / 100.0f);
+
+    // Limpa os recursos alocados
+    CGImageRelease(scaledImageRef);
+    CFRelease(imageSource);
+
+    return scaledImageData;
+}
+
+
+
+// - (UIImage*)imageByScalingNotCroppingForSize:(UIImage*)anImage toSize:(CGSize)frameSize
+// {
+//     UIImage* sourceImage = anImage;
+//     UIImage* newImage = nil;
+//     CGSize imageSize = sourceImage.size;
+//     CGFloat width = imageSize.width;
+//     CGFloat height = imageSize.height;
+//     CGFloat targetWidth = frameSize.width;
+//     CGFloat targetHeight = frameSize.height;
+//     CGFloat scaleFactor = 0.0;
+//     CGSize scaledSize = frameSize;
+
+//     if (CGSizeEqualToSize(imageSize, frameSize) == NO) {
+//         CGFloat widthFactor = targetWidth / width;
+//         CGFloat heightFactor = targetHeight / height;
+
+//         // opposite comparison to imageByScalingAndCroppingForSize in order to contain the image within the given bounds
+//         if (widthFactor == 0.0) {
+//             scaleFactor = heightFactor;
+//         } else if (heightFactor == 0.0) {
+//             scaleFactor = widthFactor;
+//         } else if (widthFactor > heightFactor) {
+//             scaleFactor = heightFactor; // scale to fit height
+//         } else {
+//             scaleFactor = widthFactor; // scale to fit width
+//         }
+//         scaledSize = CGSizeMake(floor(width * scaleFactor), floor(height * scaleFactor));
+//     }
+
+//     UIGraphicsBeginImageContext(scaledSize); // this will resize
+
+//     [sourceImage drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
+
+//     newImage = UIGraphicsGetImageFromCurrentImageContext();
+//     if (newImage == nil) {
+//         NSLog(@"could not scale image");
+//     }
+
+//     // pop the context to get back to the default
+//     UIGraphicsEndImageContext();
+//     return newImage;
+// }
 
 
 
